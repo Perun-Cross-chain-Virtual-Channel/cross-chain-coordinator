@@ -178,6 +178,11 @@ func isAlreadyConcluded(err error) bool {
 // Uses channel.Backend.Sign which produces the same encoding as
 // Channel.encodeState() in Adjudicator.sol, accepted by
 // validateCoordinatorSignature() on-chain.
+//
+// With multiple backends registered (ETH=1, CKB=3) the map yields several
+// accounts. ETH and CKB both sign Keccak256 of the same channel.State
+// encoding with the same secp256k1 key, so the first successful Sign produces
+// bytes the on-chain coordinate() verifier accepts on every chain.
 func (c *CoordinatorHost) signState(state *channel.State) (wallet.Sig, error) {
 	for b, acc := range c.acc {
 		sig, err := channel.Sign(acc, state, b)

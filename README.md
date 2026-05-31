@@ -42,36 +42,55 @@ directly.
 
 ## Configuration (`devnet_config.yaml`)
 
+Each entry in `coordinators` is a tagged union: `type: eth | ckb` selects the
+backend, and the corresponding `eth:` or `ckb:` block carries the
+backend-specific fields. Mix freely — one ETH chain and one CKB chain is the
+end-goal CKB-ETH multi-ledger topology.
+
 ```yaml
 private_key_path: ./coord_ecdsa.key     # 64-char hex ECDSA key (one line, no 0x prefix)
 coordinators:
-  - backend_id: 1                       # ethwallet.BackendID == 1
-    ledger_id: 1337                     # Chain A chain ID
-    chainURL: "ws://127.0.0.1:8545"     # MUST be ws:// or wss://
-    adjudicator_addr: "0xDEADBEEF..."   # deployed Adjudicator address on chain 1337
-  - backend_id: 1
-    ledger_id: 1338
-    chainURL: "ws://127.0.0.1:8546"
-    adjudicator_addr: "0xCAFEBABE..."
+  - type: eth
+    eth:
+      ledger_id: 1337                     # chain ID
+      chain_url: "ws://127.0.0.1:8545"    # MUST be ws:// or wss://
+      adjudicator_addr: "0xDEADBEEF..."   # deployed Adjudicator on this chain
+  - type: ckb
+    ckb:
+      rpc_url: "http://127.0.0.1:8114"    # MUST be http:// or https://
+      deployment_file: "./ckb_deployment.json"  # JSON-serialised backend.Deployment
+      network: "devnet"                   # mainnet | testnet | devnet
+      signer_address: "ckt1qyqd0rfh3..."  # operator's CKB address
+      use_evm_signer: true                # true = omni-lock EVM auth; false = secp256k1_blake160
 ```
 
 `backends.Config.Validate` enforces:
 - non-empty `private_key_path`
 - at least one coordinator entry
-- unique `(backend_id, ledger_id)` pairs
-- `chainURL` starts with `ws://` or `wss://` (HTTP transports silently break
-  `SubscribeNewHead`, which is required for `BlockTimeout.Wait` and
-  `confirmNTimes` in the ETH backend)
-- non-empty `adjudicator_addr`
+- `type` is `eth` or `ckb`, and exactly the matching `eth:` / `ckb:` block is set
+- **ETH**: unique per `ledger_id`; `chain_url` starts with `ws://` or `wss://`
+  (HTTP transports silently break `SubscribeNewHead`, required for
+  `BlockTimeout.Wait` and `confirmNTimes` in the ETH backend); non-empty
+  `adjudicator_addr`
+- **CKB**: at most one CKB entry (CKB uses a fixed `LedgerBackendID` of
+  `asset.CCID{backendID=3, ledgerID="03"}` regardless of mainnet/testnet/devnet);
+  `rpc_url` is `http://` or `https://` (CKB JSON-RPC is HTTP-only — the polling
+  subscription handles event streaming); non-empty `deployment_file` (read at
+  service start, parsed as JSON into `perun-ckb-backend.Deployment`); non-empty
+  `signer_address`; `network` is `mainnet`, `testnet`, or `devnet`
 
-The ECDSA key referenced by `private_key_path` is the coordinator's signing key.
-**Its derived ETH address is what clients embed via**
-`client.WithCoordinator(map[BackendID]wallet.Address{1: addr})` **at channel-open
-time** — channel IDs are derived from `Params` including this map, so a mismatch
-makes `CalcID` differ on the client side and the channel is unrecognisable.
+The ECDSA key referenced by `private_key_path` is the coordinator's signing key,
+shared between backends. **Its derived ETH address is what clients embed via**
+`client.WithCoordinator(map[BackendID]wallet.Address{1: ethAddr, 3: ckbAddr})`
+**at channel-open time** — channel IDs are derived from `Params` including this
+map, so a mismatch makes `CalcID` differ on the client side and the channel is
+unrecognisable. ETH and CKB both sign Keccak256 of the same `channel.State`
+encoding with the same key, so a single `*ecdsa.PrivateKey` produces valid
+coordinator signatures for both on-chain verifiers.
 
-The libp2p `-keyfile` is independent of the ECDSA key and determines the service's
-`peer.ID`. Keep it stable across restarts — clients hardcode this peer ID.
+The libp2p `-keyfile` is independent of the ECDSA key and determines the
+service's `peer.ID`. Keep it stable across restarts — clients hardcode this
+peer ID.
 
 ---
 
@@ -82,9 +101,12 @@ main.go                       CLI: -mode keygen | -mode relay
 service/service.go            wires backends.SetupMultiCoordinator +
                               coordinator.SetupRelayCoordinator
 backends/
-  config.go                   YAML loader + validator
-  multicoordinator.go         builds *multi.Coordinator + wallet.Account
+  config.go                   YAML loader + tagged-union validator
+  multicoordinator.go         builds *multi.Coordinator + wallet.Account map,
+                              dispatches on Type (eth | ckb)
   ethcoordinator.go           one *ethchannel.Coordinator per chain
+  ckbcoordinator.go           one *ckbcoordinator.Coordinator per CKB network
+                              (uses fixed LedgerBackendID asset.CCID{3, "03"})
 coordinator/
   host.go                     libp2p host, relay reservation, stream handler
                               registration, Wait()/coordWg
@@ -200,17 +222,24 @@ Test files:
 
 ---
 
-## go-perun dependency
-
-Uses a private fork pinned via `replace` directives in `go.mod`:
+## Dependencies (forks pinned via `replace`)
 
 ```
-replace perun.network/go-perun                 => github.com/NhoxxKienn/go-perun                v0.0.0-20260521103517-961fdb7beed3
-replace github.com/perun-network/perun-eth-backend => github.com/NhoxxKienn/perun-eth-backend v0.6.1-0.20260525091241-e1f6c19121e0
+replace perun.network/go-perun                     => github.com/NhoxxKienn/go-perun                v0.0.0-20260526062537-a05990e2cb40
+replace github.com/perun-network/perun-eth-backend => github.com/NhoxxKienn/perun-eth-backend      v0.6.1-0.20260525091241-e1f6c19121e0
+replace perun.network/perun-ckb-backend            => github.com/NhoxxKienn/perun-ckb-backend      v0.0.0-20260531113006-5aa8111e501a
+replace github.com/nervosnetwork/ckb-sdk-go/v2     => github.com/perun-network/ckb-sdk-go/v2       v2.2.1-0.20260530044933-548463b5d86f
 ```
 
-The fork adds `multi.Coordinator`, `CoordinatedEvent`, and the client-side
-`RelayCoordinatorNotifier` wiring required by this service.
+- **go-perun fork** adds `multi.Coordinator`, `CoordinatedEvent`, and the
+  client-side `RelayCoordinatorNotifier` wiring this service consumes.
+- **perun-eth-backend fork** exposes `ethchannel.Coordinator` (the
+  `CoordinatorSubscriber` implementation for EVM chains).
+- **perun-ckb-backend `coordination` branch** exposes
+  `coordinator.NewCoordinator(client.CKBClient)` and the matching polling
+  subscription that emits `CoordinatedEvent` after a CKB `coordinate` cell
+  lands. Its own `replace` on `github.com/nervosnetwork/ckb-sdk-go/v2` is
+  reproduced here so the transitive dependency graph resolves cleanly.
 
 ---
 
@@ -225,6 +254,17 @@ The fork adds `multi.Coordinator`, `CoordinatedEvent`, and the client-side
   bubbles up to `awaitFinalisationAndCoordinate`'s error log without an automated
   re-try. Manual recovery: the on-chain `coordinate()` is idempotent, so a fresh
   `NotifyWatch*` from any participant will re-drive coordination.
+- **CKB time advancement.** CKB has no `evm_increaseTime` analog — its dispute
+  timers progress with real wall-clock time as blocks are produced. For CKB-ETH
+  multi-ledger demos this means a short `challengeDuration` (≤ 15 s) keeps tests
+  fast; longer windows wait in real time even on the ETH side because the
+  coordinator's `awaitFinalisationAndCoordinate` uses wall-clock, not block
+  height.
+- **At most one CKB entry per coordinator.** CKB always reports its
+  `LedgerBackendID` as `asset.CCID{backendID=3, ledgerID="03"}` — there is no
+  per-chain LedgerID variability. A second CKB entry is rejected by the
+  validator. (ETH chains are unique per chain ID; many ETH entries are
+  permitted.)
 
 Previously documented gaps that are now fixed:
 

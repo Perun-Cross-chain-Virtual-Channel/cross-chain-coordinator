@@ -15,7 +15,7 @@ import (
 
 const adjudicatorGasLimit = uint64(1000000)
 
-func newETHCoordinator(w *swallet.Wallet, cfg BackendCoordinatorConfig, eacc accounts.Account) (*ethchannel.Coordinator, error) {
+func newETHCoordinator(w *swallet.Wallet, cfg ETHBackendConfig, eacc accounts.Account) (*ethchannel.Coordinator, error) {
 	ethClient, err := ethclient.Dial(cfg.ChainURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to Ethereum node: %w", err)
