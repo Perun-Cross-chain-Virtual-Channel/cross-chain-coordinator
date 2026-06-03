@@ -171,12 +171,12 @@ require (
 	lukechampine.com/blake3 v1.4.1 // indirect
 )
 
-replace perun.network/go-perun => github.com/NhoxxKienn/go-perun v0.0.0-20260526062537-a05990e2cb40
+replace perun.network/go-perun => github.com/Perun-Cross-chain-Virtual-Channel/go-perun v0.0.0-20260526062537-a05990e2cb40
 
-replace github.com/perun-network/perun-eth-backend => github.com/NhoxxKienn/perun-eth-backend v0.6.1-0.20260525091241-e1f6c19121e0
+replace github.com/perun-network/perun-eth-backend => github.com/Perun-Cross-chain-Virtual-Channel/perun-eth-backend v0.6.1-0.20260603060223-82e88db70699
 
 // perun-ckb-backend coordination branch — adds CoordinatorSubscriber implementation for CKB.
-replace perun.network/perun-ckb-backend => github.com/NhoxxKienn/perun-ckb-backend v0.0.0-20260531113006-5aa8111e501a
+replace perun.network/perun-ckb-backend => github.com/Perun-Cross-chain-Virtual-Channel/perun-ckb-backend v0.0.0-20260531113006-5aa8111e501a
 
 // perun-ckb-backend depends on a forked ckb-sdk-go (per its own go.mod).
 replace github.com/nervosnetwork/ckb-sdk-go/v2 => github.com/perun-network/ckb-sdk-go/v2 v2.2.1-0.20260530044933-548463b5d86f
